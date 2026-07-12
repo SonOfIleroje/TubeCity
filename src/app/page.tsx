@@ -2,10 +2,10 @@
 import BrandSearch from "@/components/BrandSearch";
 import NexLevPanel from "@/components/NexLevPanel";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, Stars, Billboard as DreiBillboard, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { nicheColor } from "@/lib/niche";
 import { estimateSponsorshipValue, evaluateDeal } from "@/lib/sponsorship";
@@ -486,29 +486,29 @@ function CityGround(){
     <group>
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,-1,0]} receiveShadow>
         <planeGeometry args={[2500,2500]}/>
-        <meshStandardMaterial color="#0c0000" roughness={0.95}/>
+        <meshStandardMaterial color="#140404" roughness={0.95}/>
       </mesh>
       {roads.map(z=>(
         <mesh key={`hr${z}`} rotation={[-Math.PI/2,0,0]} position={[0,0,z]}>
           <planeGeometry args={[2500,20]}/>
-          <meshStandardMaterial color="#180000" roughness={0.88}/>
+          <meshStandardMaterial color="#2c0808" roughness={0.8} emissive="#180000" emissiveIntensity={0.4}/>
         </mesh>
       ))}
       {roads.map(x=>(
         <mesh key={`vr${x}`} rotation={[-Math.PI/2,0,0]} position={[x,0,0]}>
           <planeGeometry args={[20,2500]}/>
-          <meshStandardMaterial color="#180000" roughness={0.88}/>
+          <meshStandardMaterial color="#2c0808" roughness={0.8} emissive="#180000" emissiveIntensity={0.4}/>
         </mesh>
       ))}
       {/* Road dashes */}
       {roads.map(z=>Array.from({length:40}).map((_,i)=>(
         <mesh key={`hd${z}${i}`} rotation={[-Math.PI/2,0,0]} position={[(i-20)*62,0.2,z]}>
-          <planeGeometry args={[24,0.7]}/><meshStandardMaterial color="#3a0000" emissive="#280000" emissiveIntensity={0.5}/>
+          <planeGeometry args={[24,0.7]}/><meshStandardMaterial color="#ff5533" emissive="#ff3300" emissiveIntensity={1.4} toneMapped={false}/>
         </mesh>
       )))}
       {roads.map(x=>Array.from({length:40}).map((_,i)=>(
         <mesh key={`vd${x}${i}`} rotation={[-Math.PI/2,0,0]} position={[x,0.2,(i-20)*62]}>
-          <planeGeometry args={[0.7,24]}/><meshStandardMaterial color="#3a0000" emissive="#280000" emissiveIntensity={0.5}/>
+          <planeGeometry args={[0.7,24]}/><meshStandardMaterial color="#ff5533" emissive="#ff3300" emissiveIntensity={1.4} toneMapped={false}/>
         </mesh>
       )))}
       {/* Street lamps with real point lights */}
@@ -695,6 +695,66 @@ function Vehicles(){
     return list;
   },[]);
   return<>{vlist.map((v,i)=><Vehicle key={i} v={v}/>)}</>;
+}
+
+// ─── AD BILLBOARDS ───────────────────────────────────────────
+// Real, visible "AD SPACE AVAILABLE" panels scattered around the outer
+// districts — previously the only ad-space signal was a text-only ticker
+// message, no actual 3D object existed.
+
+interface BillboardDef{x:number;z:number;rotY:number;h:number;}
+
+function AdBillboard({b}:{b:BillboardDef}){
+  const glowRef=useRef<THREE.Mesh>(null);
+  useFrame(({clock})=>{
+    if(glowRef.current)(glowRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity=1.6+Math.sin(clock.elapsedTime*1.2+b.x)*0.4;
+  });
+  return(
+    <group position={[b.x,0,b.z]} rotation={[0,b.rotY,0]}>
+      {/* Support pole */}
+      <mesh position={[0,b.h/2,0]}>
+        <cylinderGeometry args={[1.1,1.4,b.h,8]}/>
+        <meshStandardMaterial color="#1a0000" metalness={0.7} roughness={0.4}/>
+      </mesh>
+      {/* Panel frame */}
+      <mesh ref={glowRef} position={[0,b.h+9,0]}>
+        <boxGeometry args={[34,18,1.2]}/>
+        <meshStandardMaterial color="#120800" emissive="#ffaa00" emissiveIntensity={1.6} roughness={0.3} metalness={0.6}/>
+      </mesh>
+      {/* Panel face */}
+      <mesh position={[0,b.h+9,0.7]}>
+        <planeGeometry args={[31,15]}/>
+        <meshStandardMaterial color="#0a0000" emissive="#330000" emissiveIntensity={0.5}/>
+      </mesh>
+      <DreiBillboard position={[0,b.h+9,0.8]} follow>
+        <Text fontSize={2.6} color="#ffd700" letterSpacing={0.05} anchorX="center" anchorY="middle" position={[0,3.2,0]}>
+          AD SPACE AVAILABLE
+        </Text>
+        <Text fontSize={1.3} color="#ff8844" letterSpacing={0.03} anchorX="center" anchorY="middle" position={[0,-1.2,0]}>
+          Put your brand on this billboard — tubecity.io/advertise
+        </Text>
+      </DreiBillboard>
+      {/* Base glow ring */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.3,0]}>
+        <ringGeometry args={[3,6,24]}/>
+        <meshBasicMaterial color="#ffaa00" transparent opacity={0.35}/>
+      </mesh>
+    </group>
+  );
+}
+
+function AdBillboards(){
+  const boards=useMemo<BillboardDef[]>(()=>{
+    const list:BillboardDef[]=[];
+    const count=10;
+    for(let i=0;i<count;i++){
+      const a=(i/count)*Math.PI*2+seededRnd(i*731)*0.3;
+      const r=380+seededRnd(i*911)*280;
+      list.push({x:Math.cos(a)*r,z:Math.sin(a)*r,rotY:-a+Math.PI/2,h:22+seededRnd(i*457)*10});
+    }
+    return list;
+  },[]);
+  return<>{boards.map((b,i)=><AdBillboard key={i} b={b}/>)}</>;
 }
 
 // ─── ATMOSPHERE ───────────────────────────────────────────────
@@ -1238,10 +1298,17 @@ export default function Home(){
         <Canvas camera={{position:[0,300,560],fov:46}} shadows
           gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:0.85}}>
           <fog attach="fog" args={["#060000",800,6000]}/>
-          <ambientLight intensity={2.2} color="#cc2211"/>
-          <pointLight position={[0,300,0]} intensity={1.4} color="#ff2200"/>
-          <pointLight position={[-300,150,300]} intensity={0.6} color="#cc1100"/>
-          <pointLight position={[300,150,-300]} intensity={0.55} color="#dd1100"/>
+          <ambientLight intensity={3.1} color="#cc2211"/>
+          <hemisphereLight args={["#ff5533","#1a0000",0.9]}/>
+          <pointLight position={[0,300,0]} intensity={1.4} color="#ff2200" distance={1400} decay={1.4}/>
+          <pointLight position={[-300,150,300]} intensity={0.7} color="#cc1100" distance={900} decay={1.4}/>
+          <pointLight position={[300,150,-300]} intensity={0.65} color="#dd1100" distance={900} decay={1.4}/>
+          {/* Fill lights for the mid/rising/newcomer rings — the original three lights
+              only really reached the prime/megacity core, leaving outer districts dark */}
+          <pointLight position={[560,180,0]} intensity={0.55} color="#cc1100" distance={900} decay={1.4}/>
+          <pointLight position={[-560,180,0]} intensity={0.55} color="#cc1100" distance={900} decay={1.4}/>
+          <pointLight position={[0,180,560]} intensity={0.55} color="#dd1100" distance={900} decay={1.4}/>
+          <pointLight position={[0,180,-560]} intensity={0.55} color="#dd1100" distance={900} decay={1.4}/>
           <directionalLight position={[150,250,100]} intensity={0.7} castShadow color="#cc2200"
             shadow-mapSize-width={2048} shadow-mapSize-height={2048}/>
           <Stars radius={1000} depth={100} count={2000} factor={4} saturation={0} fade speed={0.3}/>
@@ -1251,6 +1318,7 @@ export default function Home(){
           <PrimeBeacon/>
           <PrimeSlots/>
           <Vehicles/>
+          <Suspense fallback={null}><AdBillboards/></Suspense>
           {buildings.length>0&&(
             <>
               <InstancedCity buildings={buildings} atlas={atlas} focusHandle={focusHandle} onBuildingClick={handleClick} onHoverChange={handleHover}/>
