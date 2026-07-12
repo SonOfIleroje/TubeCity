@@ -7,7 +7,7 @@ export async function GET() {
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from("channels")
-      .select("id, youtube_id, handle, channel_name, description, subscriber_count, video_count, recent_upload_count_30d, category, niche, is_verified, cached_at, avatar_url")
+      .select("id, youtube_id, handle, channel_name, description, subscriber_count, video_count, total_view_count, recent_upload_count_30d, category, niche, is_verified, cached_at, avatar_url")
       .order("subscriber_count", { ascending: false })
       .limit(200);
 
@@ -19,6 +19,7 @@ export async function GET() {
       channel_name: ch.channel_name ?? null,
       subscriber_count: ch.subscriber_count ?? 0,
       video_count: ch.video_count ?? 0,
+      total_view_count: ch.total_view_count ?? 0,
       recent_upload_count_30d: ch.recent_upload_count_30d ?? 0,
       category: ch.category ?? null,
       // Most rows already have a real niche; the ~87% still stuck on "other" get

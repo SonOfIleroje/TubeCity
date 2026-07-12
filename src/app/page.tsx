@@ -8,6 +8,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import { nicheColor } from "@/lib/niche";
+import { estimateSponsorshipValue, evaluateDeal } from "@/lib/sponsorship";
 
 // ─── CONFIG ──────────────────────────────────────────────────
 
@@ -18,15 +19,6 @@ const DISTRICTS = [
   { id:"rising",   label:"RISING DISTRICT",  minSubs:100_000,    ringR:460, color:"#ff8800", desc:"100K – 1M" },
   { id:"newcomer", label:"NEWCOMER STRIP",   minSubs:0,          ringR:620, color:"#ffaa00", desc:"Under 100K" },
 ];
-
-// Keep in sync with src/lib/sponsorship.ts's NICHE_CPM_TABLE — that vocabulary is
-// what's already live in the production channels.niche column.
-const CPM: Record<string,[number,number]> = {
-  finance:[15,30],business:[12,25],tech:[10,20],ai_tools:[12,28],education:[10,18],
-  health:[8,18],entertainment:[5,15],gaming:[5,12],music:[5,10],lifestyle:[8,15],
-  food:[5,14],travel:[6,18],beauty:[5,15],fitness:[6,16],kids:[3,10],
-  news:[8,15],science:[10,18],history:[6,14],pets:[6,12],other:[4,12],
-};
 
 const NICHE_SHAPES: Record<string, "box"|"step"|"taper"|"slim"|"wide"> = {
   finance:"step", business:"step", tech:"slim", ai_tools:"slim", gaming:"taper",
@@ -860,11 +852,28 @@ function ClaimModal({b,onClose}:{b:any;onClose:()=>void}){
 
 function StatsPanel({b,onClose,onRefresh}:{b:PlacedBld;onClose:()=>void;onRefresh:(h:string)=>void}){
   const dist=DISTRICTS.find(d=>d.id===b.districtId)??DISTRICTS[4];
-  const key=Object.keys(CPM).find(k=>b.niche.toLowerCase().includes(k))??"entertainment";
-  const[cl,ch]=CPM[key];
-  const avg=b.subscriber_count*0.04;
-  const low=Math.round(avg*cl/1000),high=Math.round(avg*ch/1000);
+  // Uses real total_view_count/video_count when we have it (falls back to a flat
+  // view-rate guess only for channels never fully fetched), plus the engagement/
+  // upload-frequency/subscriber-tier multiplier — replaces the old flat
+  // subscriber_count*0.04 guess that ignored actual channel performance.
+  const estimate=useMemo(()=>estimateSponsorshipValue(
+    b.subscriber_count,
+    b.total_view_count&&b.total_view_count>0?b.total_view_count:Math.round(b.subscriber_count*0.04*(b.video_count||1)),
+    b.video_count||1,
+    b.niche,
+    undefined,
+    b.recent_upload_count_30d,
+  ),[b.subscriber_count,b.total_view_count,b.video_count,b.niche,b.recent_upload_count_30d]);
+  const low=estimate.estimated_min,high=estimate.estimated_max;
   const [refreshing,setRefreshing]=useState(false);
+  const [shareCopied,setShareCopied]=useState(false);
+  const [showClaim,setShowClaim]=useState(false);
+  const [dealOffer,setDealOffer]=useState("");
+  const dealResult=useMemo(()=>{
+    const n=Number(dealOffer);
+    return dealOffer&&n>0?evaluateDeal(n,estimate):null;
+  },[dealOffer,estimate]);
+  const dealColor:Record<string,string>={great_deal:"#22cc66",fair:"#ffcc00",below_market:"#ff8800",lowball:"#ff2222"};
 
   const doRefresh=async()=>{
     setRefreshing(true);
@@ -903,7 +912,26 @@ function StatsPanel({b,onClose,onRefresh}:{b:PlacedBld;onClose:()=>void;onRefres
       <div style={{borderTop:"1px solid #250000",paddingTop:14,marginBottom:14}}>
         <div style={{fontSize:9,color:"#ffaa44",letterSpacing:2,marginBottom:8}}>💰 ESTIMATED SPONSOR VALUE</div>
         <div style={{fontSize:26,fontWeight:900,color:"#ff2222"}}>${low.toLocaleString()} – ${high.toLocaleString()}</div>
-        <div style={{fontSize:10,color:"#555",marginTop:5}}>per video · {b.niche} CPM · ~{fmt(Math.round(avg))} avg views</div>
+        <div style={{fontSize:10,color:"#555",marginTop:5}}>per video · {b.niche} CPM · ~{fmt(estimate.avg_views_per_video)} avg views</div>
+      </div>
+
+      <div style={{borderTop:"1px solid #250000",paddingTop:12,marginBottom:14}}>
+        <div style={{fontSize:9,color:"#ffaa44",letterSpacing:2,marginBottom:8}}>🤝 IS THIS DEAL FAIR?</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:14,color:"#888"}}>$</span>
+          <input
+            type="number"
+            value={dealOffer}
+            onChange={e=>setDealOffer(e.target.value)}
+            placeholder="Offer amount"
+            style={{flex:1,background:"rgba(150,0,0,0.09)",border:"1px solid #440000",borderRadius:8,padding:"7px 9px",color:"white",fontFamily:"'Courier New',monospace",fontSize:12,outline:"none"}}
+          />
+        </div>
+        {dealResult&&(
+          <div style={{marginTop:8,fontSize:11,color:dealColor[dealResult.verdict]}}>
+            {dealResult.percentage_of_market}% of market avg · {dealResult.recommendation}
+          </div>
+        )}
       </div>
 
       <div style={{display:"flex",gap:6,marginBottom:8}}>
@@ -1280,7 +1308,7 @@ export default function Home(){
             recent_upload_count_30d:b.recent_upload_count_30d,
             category:b.category,is_verified:b.is_verified,
             niche:b.niche,litPct:b.litPct,districtId:b.districtId,
-            total_view_count:b.xp_total,
+            total_view_count:b.total_view_count,
           }))}
           onSelectChannel={(handle)=>{
             const b=buildings.find(x=>x.handle.toLowerCase()===handle.toLowerCase());
