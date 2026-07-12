@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchFullChannelData, YouTubeFetchError } from "@/lib/youtube-api";
+import { inferNiche } from "@/lib/niche";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -16,7 +17,13 @@ export async function GET(request: Request) {
     const cachedAt = new Date(cached.cached_at ?? cached.created_at);
     const hoursSinceCached = (Date.now() - cachedAt.getTime()) / (1000 * 60 * 60);
     if (hoursSinceCached < 24) {
-      return NextResponse.json({ channel: cached, recent_uploads: cached.recent_uploads ?? [], source: "cache" },
+      // channels.niche exists but was never written by this route until now — a lot of
+      // older rows are still stuck on the "other" default. Infer on the fly for those
+      // rather than serving a flat "other" for every uncategorized channel.
+      const niche = cached.niche && cached.niche !== "other"
+        ? cached.niche
+        : inferNiche(cached.category, `${cached.channel_name ?? ""} ${cached.description ?? ""}`);
+      return NextResponse.json({ channel: { ...cached, niche }, recent_uploads: cached.recent_uploads ?? [], source: "cache" },
         { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
     }
   }
@@ -26,12 +33,14 @@ export async function GET(request: Request) {
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const recentCount30d = recent_uploads.filter(u => new Date(u.published_at) >= thirtyDaysAgo).length;
 
+    const niche = inferNiche(channel.category, `${channel.channel_name ?? ""} ${channel.description ?? ""}`);
+
     const channelRow = {
       youtube_id: channel.youtube_id, handle: channel.handle, channel_name: channel.channel_name,
       avatar_url: channel.avatar_url, banner_url: channel.banner_url, description: channel.description,
       subscriber_count: channel.subscriber_count, video_count: channel.video_count,
       total_view_count: channel.total_view_count, uploads_playlist_id: channel.uploads_playlist_id,
-      category: channel.category, is_verified: channel.is_verified, published_at: channel.published_at,
+      category: channel.category, niche, is_verified: channel.is_verified, published_at: channel.published_at,
       country: channel.country, recent_upload_count_30d: recentCount30d, cached_at: new Date().toISOString(),
     };
 

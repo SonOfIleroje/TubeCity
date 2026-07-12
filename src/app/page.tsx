@@ -2,11 +2,13 @@
 import BrandSearch from "@/components/BrandSearch";
 import NexLevPanel from "@/components/NexLevPanel";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, Stars, Billboard as DreiBillboard, Text } from "@react-three/drei";
 import * as THREE from "three";
+import { nicheColor } from "@/lib/niche";
+import { estimateSponsorshipValue, evaluateDeal } from "@/lib/sponsorship";
 
 // ─── CONFIG ──────────────────────────────────────────────────
 
@@ -18,16 +20,11 @@ const DISTRICTS = [
   { id:"newcomer", label:"NEWCOMER STRIP",   minSubs:0,          ringR:620, color:"#ffaa00", desc:"Under 100K" },
 ];
 
-const CPM: Record<string,[number,number]> = {
-  finance:[15,30],tech:[10,20],education:[10,18],science:[10,18],
-  entertainment:[5,15],gaming:[5,12],music:[5,10],lifestyle:[8,15],
-  news:[8,15],comedy:[5,12],pets:[6,12],faith:[6,12],
-};
-
 const NICHE_SHAPES: Record<string, "box"|"step"|"taper"|"slim"|"wide"> = {
-  finance:"step", tech:"slim", gaming:"taper", education:"wide",
-  entertainment:"box", music:"slim", lifestyle:"wide", science:"step",
-  news:"box", faith:"taper", pets:"wide", comedy:"taper",
+  finance:"step", business:"step", tech:"slim", ai_tools:"slim", gaming:"taper",
+  education:"wide", entertainment:"box", music:"slim", lifestyle:"wide",
+  health:"wide", food:"wide", travel:"wide", beauty:"slim", fitness:"taper",
+  kids:"wide", science:"step", history:"step", news:"box", pets:"wide", other:"box",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────
@@ -37,22 +34,6 @@ function fmt(n:number):string {
   if(n>=1e6)return(n/1e6).toFixed(1)+"M";
   if(n>=1e3)return(n/1e3).toFixed(1)+"K";
   return String(n);
-}
-
-function inferNiche(c:string|null|undefined):string {
-  const s=(c??"").toLowerCase();
-  if(s.includes("financ")||s.includes("money"))return"finance";
-  if(s.includes("tech")||s.includes("software")||s.includes("coding"))return"tech";
-  if(s.includes("gaming")||s.includes("game"))return"gaming";
-  if(s.includes("educat")||s.includes("learn"))return"education";
-  if(s.includes("music"))return"music";
-  if(s.includes("lifestyl")||s.includes("vlog"))return"lifestyle";
-  if(s.includes("scienc"))return"science";
-  if(s.includes("news")||s.includes("polit"))return"news";
-  if(s.includes("faith")||s.includes("spirit"))return"faith";
-  if(s.includes("pet")||s.includes("animal"))return"pets";
-  if(s.includes("comed"))return"comedy";
-  return"entertainment";
 }
 
 function calcHeight(subs:number):number {
@@ -65,16 +46,6 @@ function calcHeight(subs:number):number {
 function calcWidth(videos:number):number {
   if(videos<=0)return 10;
   return 10+Math.min(1,Math.log10(Math.max(1,videos))/4)*20;
-}
-
-function nicheColor(niche:string):string {
-  const map:Record<string,string>={
-    finance:"#cc1111",tech:"#dd2200",gaming:"#ff4400",
-    education:"#aa2200",entertainment:"#ff2200",music:"#cc0044",
-    lifestyle:"#bb1133",science:"#dd1100",news:"#991100",
-    faith:"#cc4400",pets:"#bb3300",comedy:"#ff5500",
-  };
-  return map[niche]??"#cc2200";
 }
 
 function seededRnd(seed:number):number {
@@ -134,7 +105,7 @@ function createAtlas():THREE.CanvasTexture {
 interface ChData {
   id:string;handle:string;channel_name:string|null;
   subscriber_count:number;video_count:number;
-  recent_upload_count_30d:number;category:string|null;
+  recent_upload_count_30d:number;category:string|null;niche?:string;
   is_verified:boolean;avatar_url:string|null;total_view_count?:number;
 }
 
@@ -159,7 +130,7 @@ function layoutCity(channels:ChData[]):PlacedBld[] {
 
   for(const ch of sorted){
     const subs=ch.subscriber_count??0;
-    const niche=inferNiche(ch.category);
+    const niche=ch.niche??"other";
     const h=calcHeight(subs);
     const w=calcWidth(ch.video_count??0);
     const d=w*0.85;
@@ -515,29 +486,29 @@ function CityGround(){
     <group>
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,-1,0]} receiveShadow>
         <planeGeometry args={[2500,2500]}/>
-        <meshStandardMaterial color="#0c0000" roughness={0.95}/>
+        <meshStandardMaterial color="#140404" roughness={0.95}/>
       </mesh>
       {roads.map(z=>(
         <mesh key={`hr${z}`} rotation={[-Math.PI/2,0,0]} position={[0,0,z]}>
           <planeGeometry args={[2500,20]}/>
-          <meshStandardMaterial color="#180000" roughness={0.88}/>
+          <meshStandardMaterial color="#2c0808" roughness={0.8} emissive="#180000" emissiveIntensity={0.4}/>
         </mesh>
       ))}
       {roads.map(x=>(
         <mesh key={`vr${x}`} rotation={[-Math.PI/2,0,0]} position={[x,0,0]}>
           <planeGeometry args={[20,2500]}/>
-          <meshStandardMaterial color="#180000" roughness={0.88}/>
+          <meshStandardMaterial color="#2c0808" roughness={0.8} emissive="#180000" emissiveIntensity={0.4}/>
         </mesh>
       ))}
       {/* Road dashes */}
       {roads.map(z=>Array.from({length:40}).map((_,i)=>(
         <mesh key={`hd${z}${i}`} rotation={[-Math.PI/2,0,0]} position={[(i-20)*62,0.2,z]}>
-          <planeGeometry args={[24,0.7]}/><meshStandardMaterial color="#3a0000" emissive="#280000" emissiveIntensity={0.5}/>
+          <planeGeometry args={[24,0.7]}/><meshStandardMaterial color="#ff5533" emissive="#ff3300" emissiveIntensity={1.4} toneMapped={false}/>
         </mesh>
       )))}
       {roads.map(x=>Array.from({length:40}).map((_,i)=>(
         <mesh key={`vd${x}${i}`} rotation={[-Math.PI/2,0,0]} position={[x,0.2,(i-20)*62]}>
-          <planeGeometry args={[0.7,24]}/><meshStandardMaterial color="#3a0000" emissive="#280000" emissiveIntensity={0.5}/>
+          <planeGeometry args={[0.7,24]}/><meshStandardMaterial color="#ff5533" emissive="#ff3300" emissiveIntensity={1.4} toneMapped={false}/>
         </mesh>
       )))}
       {/* Street lamps with real point lights */}
@@ -726,6 +697,66 @@ function Vehicles(){
   return<>{vlist.map((v,i)=><Vehicle key={i} v={v}/>)}</>;
 }
 
+// ─── AD BILLBOARDS ───────────────────────────────────────────
+// Real, visible "AD SPACE AVAILABLE" panels scattered around the outer
+// districts — previously the only ad-space signal was a text-only ticker
+// message, no actual 3D object existed.
+
+interface BillboardDef{x:number;z:number;rotY:number;h:number;}
+
+function AdBillboard({b}:{b:BillboardDef}){
+  const glowRef=useRef<THREE.Mesh>(null);
+  useFrame(({clock})=>{
+    if(glowRef.current)(glowRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity=1.6+Math.sin(clock.elapsedTime*1.2+b.x)*0.4;
+  });
+  return(
+    <group position={[b.x,0,b.z]} rotation={[0,b.rotY,0]}>
+      {/* Support pole */}
+      <mesh position={[0,b.h/2,0]}>
+        <cylinderGeometry args={[1.1,1.4,b.h,8]}/>
+        <meshStandardMaterial color="#1a0000" metalness={0.7} roughness={0.4}/>
+      </mesh>
+      {/* Panel frame */}
+      <mesh ref={glowRef} position={[0,b.h+9,0]}>
+        <boxGeometry args={[34,18,1.2]}/>
+        <meshStandardMaterial color="#120800" emissive="#ffaa00" emissiveIntensity={1.6} roughness={0.3} metalness={0.6}/>
+      </mesh>
+      {/* Panel face */}
+      <mesh position={[0,b.h+9,0.7]}>
+        <planeGeometry args={[31,15]}/>
+        <meshStandardMaterial color="#0a0000" emissive="#330000" emissiveIntensity={0.5}/>
+      </mesh>
+      <DreiBillboard position={[0,b.h+9,0.8]} follow>
+        <Text fontSize={2.6} color="#ffd700" letterSpacing={0.05} anchorX="center" anchorY="middle" position={[0,3.2,0]}>
+          AD SPACE AVAILABLE
+        </Text>
+        <Text fontSize={1.3} color="#ff8844" letterSpacing={0.03} anchorX="center" anchorY="middle" position={[0,-1.2,0]}>
+          Put your brand on this billboard — tubecity.io/advertise
+        </Text>
+      </DreiBillboard>
+      {/* Base glow ring */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.3,0]}>
+        <ringGeometry args={[3,6,24]}/>
+        <meshBasicMaterial color="#ffaa00" transparent opacity={0.35}/>
+      </mesh>
+    </group>
+  );
+}
+
+function AdBillboards(){
+  const boards=useMemo<BillboardDef[]>(()=>{
+    const list:BillboardDef[]=[];
+    const count=10;
+    for(let i=0;i<count;i++){
+      const a=(i/count)*Math.PI*2+seededRnd(i*731)*0.3;
+      const r=380+seededRnd(i*911)*280;
+      list.push({x:Math.cos(a)*r,z:Math.sin(a)*r,rotY:-a+Math.PI/2,h:22+seededRnd(i*457)*10});
+    }
+    return list;
+  },[]);
+  return<>{boards.map((b,i)=><AdBillboard key={i} b={b}/>)}</>;
+}
+
 // ─── ATMOSPHERE ───────────────────────────────────────────────
 
 function Atmosphere(){
@@ -881,11 +912,28 @@ function ClaimModal({b,onClose}:{b:any;onClose:()=>void}){
 
 function StatsPanel({b,onClose,onRefresh}:{b:PlacedBld;onClose:()=>void;onRefresh:(h:string)=>void}){
   const dist=DISTRICTS.find(d=>d.id===b.districtId)??DISTRICTS[4];
-  const key=Object.keys(CPM).find(k=>b.niche.toLowerCase().includes(k))??"entertainment";
-  const[cl,ch]=CPM[key];
-  const avg=b.subscriber_count*0.04;
-  const low=Math.round(avg*cl/1000),high=Math.round(avg*ch/1000);
+  // Uses real total_view_count/video_count when we have it (falls back to a flat
+  // view-rate guess only for channels never fully fetched), plus the engagement/
+  // upload-frequency/subscriber-tier multiplier — replaces the old flat
+  // subscriber_count*0.04 guess that ignored actual channel performance.
+  const estimate=useMemo(()=>estimateSponsorshipValue(
+    b.subscriber_count,
+    b.total_view_count&&b.total_view_count>0?b.total_view_count:Math.round(b.subscriber_count*0.04*(b.video_count||1)),
+    b.video_count||1,
+    b.niche,
+    undefined,
+    b.recent_upload_count_30d,
+  ),[b.subscriber_count,b.total_view_count,b.video_count,b.niche,b.recent_upload_count_30d]);
+  const low=estimate.estimated_min,high=estimate.estimated_max;
   const [refreshing,setRefreshing]=useState(false);
+  const [shareCopied,setShareCopied]=useState(false);
+  const [showClaim,setShowClaim]=useState(false);
+  const [dealOffer,setDealOffer]=useState("");
+  const dealResult=useMemo(()=>{
+    const n=Number(dealOffer);
+    return dealOffer&&n>0?evaluateDeal(n,estimate):null;
+  },[dealOffer,estimate]);
+  const dealColor:Record<string,string>={great_deal:"#22cc66",fair:"#ffcc00",below_market:"#ff8800",lowball:"#ff2222"};
 
   const doRefresh=async()=>{
     setRefreshing(true);
@@ -924,7 +972,26 @@ function StatsPanel({b,onClose,onRefresh}:{b:PlacedBld;onClose:()=>void;onRefres
       <div style={{borderTop:"1px solid #250000",paddingTop:14,marginBottom:14}}>
         <div style={{fontSize:9,color:"#ffaa44",letterSpacing:2,marginBottom:8}}>💰 ESTIMATED SPONSOR VALUE</div>
         <div style={{fontSize:26,fontWeight:900,color:"#ff2222"}}>${low.toLocaleString()} – ${high.toLocaleString()}</div>
-        <div style={{fontSize:10,color:"#555",marginTop:5}}>per video · {b.niche} CPM · ~{fmt(Math.round(avg))} avg views</div>
+        <div style={{fontSize:10,color:"#555",marginTop:5}}>per video · {b.niche} CPM · ~{fmt(estimate.avg_views_per_video)} avg views</div>
+      </div>
+
+      <div style={{borderTop:"1px solid #250000",paddingTop:12,marginBottom:14}}>
+        <div style={{fontSize:9,color:"#ffaa44",letterSpacing:2,marginBottom:8}}>🤝 IS THIS DEAL FAIR?</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:14,color:"#888"}}>$</span>
+          <input
+            type="number"
+            value={dealOffer}
+            onChange={e=>setDealOffer(e.target.value)}
+            placeholder="Offer amount"
+            style={{flex:1,background:"rgba(150,0,0,0.09)",border:"1px solid #440000",borderRadius:8,padding:"7px 9px",color:"white",fontFamily:"'Courier New',monospace",fontSize:12,outline:"none"}}
+          />
+        </div>
+        {dealResult&&(
+          <div style={{marginTop:8,fontSize:11,color:dealColor[dealResult.verdict]}}>
+            {dealResult.percentage_of_market}% of market avg · {dealResult.recommendation}
+          </div>
+        )}
       </div>
 
       <div style={{display:"flex",gap:6,marginBottom:8}}>
@@ -1231,10 +1298,17 @@ export default function Home(){
         <Canvas camera={{position:[0,300,560],fov:46}} shadows
           gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:0.85}}>
           <fog attach="fog" args={["#060000",800,6000]}/>
-          <ambientLight intensity={2.2} color="#cc2211"/>
-          <pointLight position={[0,300,0]} intensity={1.4} color="#ff2200"/>
-          <pointLight position={[-300,150,300]} intensity={0.6} color="#cc1100"/>
-          <pointLight position={[300,150,-300]} intensity={0.55} color="#dd1100"/>
+          <ambientLight intensity={3.1} color="#cc2211"/>
+          <hemisphereLight args={["#ff5533","#1a0000",0.9]}/>
+          <pointLight position={[0,300,0]} intensity={1.4} color="#ff2200" distance={1400} decay={1.4}/>
+          <pointLight position={[-300,150,300]} intensity={0.7} color="#cc1100" distance={900} decay={1.4}/>
+          <pointLight position={[300,150,-300]} intensity={0.65} color="#dd1100" distance={900} decay={1.4}/>
+          {/* Fill lights for the mid/rising/newcomer rings — the original three lights
+              only really reached the prime/megacity core, leaving outer districts dark */}
+          <pointLight position={[560,180,0]} intensity={0.55} color="#cc1100" distance={900} decay={1.4}/>
+          <pointLight position={[-560,180,0]} intensity={0.55} color="#cc1100" distance={900} decay={1.4}/>
+          <pointLight position={[0,180,560]} intensity={0.55} color="#dd1100" distance={900} decay={1.4}/>
+          <pointLight position={[0,180,-560]} intensity={0.55} color="#dd1100" distance={900} decay={1.4}/>
           <directionalLight position={[150,250,100]} intensity={0.7} castShadow color="#cc2200"
             shadow-mapSize-width={2048} shadow-mapSize-height={2048}/>
           <Stars radius={1000} depth={100} count={2000} factor={4} saturation={0} fade speed={0.3}/>
@@ -1244,6 +1318,7 @@ export default function Home(){
           <PrimeBeacon/>
           <PrimeSlots/>
           <Vehicles/>
+          <Suspense fallback={null}><AdBillboards/></Suspense>
           {buildings.length>0&&(
             <>
               <InstancedCity buildings={buildings} atlas={atlas} focusHandle={focusHandle} onBuildingClick={handleClick} onHoverChange={handleHover}/>
@@ -1301,7 +1376,7 @@ export default function Home(){
             recent_upload_count_30d:b.recent_upload_count_30d,
             category:b.category,is_verified:b.is_verified,
             niche:b.niche,litPct:b.litPct,districtId:b.districtId,
-            total_view_count:b.xp_total,
+            total_view_count:b.total_view_count,
           }))}
           onSelectChannel={(handle)=>{
             const b=buildings.find(x=>x.handle.toLowerCase()===handle.toLowerCase());

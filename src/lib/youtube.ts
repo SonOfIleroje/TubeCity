@@ -1,4 +1,5 @@
 import { Channel, CityBuilding, District } from "@/types";
+import { inferNiche, nicheColor } from "@/lib/niche";
 
 export function generateCityLayout(channels: Channel[]): CityBuilding[] {
   if (!channels.length) return [];
@@ -50,18 +51,24 @@ export function generateCityLayout(channels: Channel[]): CityBuilding[] {
     if (col % roadEvery === 0) x += spacing * 0.6;
     if (row % roadEvery === 0) z += spacing * 0.6;
 
+    // channels.niche is populated at cache-write time (see api/channel/route.ts);
+    // fall back to inferring it here for older rows that predate that column being written.
+    const niche = ch.niche && ch.niche !== "other"
+      ? ch.niche
+      : inferNiche(ch.category, `${ch.channel_name ?? ""} ${ch.description ?? ""}`);
+
     buildings.push({
       id: ch.id,
       position: [x, 0, z],
       height: Math.max(1.5, Math.min(18, 1.5 + Math.log10(ch.subscriber_count + 1) * 2.5)),
       width: Math.max(0.8, Math.min(2.5, 0.8 + Math.log10(ch.video_count + 1) * 0.6)),
       depth: Math.max(0.8, Math.min(2.5, 0.8 + Math.log10(ch.video_count + 1) * 0.6)),
-      color: nicheColor(ch.niche),
+      color: nicheColor(niche),
       district,
-      hasRecentActivity: ch.last_upload_date ? (Date.now() - new Date(ch.last_upload_date).getTime()) < 30*24*60*60*1000 : false,
-      isVerified: ch.subscriber_count > 1000000,
-      niche: ch.niche,
-      title: ch.title,
+      hasRecentActivity: (ch.recent_upload_count_30d ?? 0) > 0,
+      isVerified: ch.is_verified || ch.subscriber_count > 1_000_000,
+      niche,
+      title: ch.channel_name ?? ch.handle ?? "Unknown",
       handle: ch.handle,
       subscriber_count: ch.subscriber_count,
       video_count: ch.video_count,
@@ -69,16 +76,4 @@ export function generateCityLayout(channels: Channel[]): CityBuilding[] {
     idx++;
   }
   return buildings;
-}
-
-function nicheColor(niche: string): string {
-  const n = (niche || "").toLowerCase();
-  if (n.includes("finance")) return "#c0392b";
-  if (n.includes("tech")) return "#e74c3c";
-  if (n.includes("gaming")) return "#ff6b6b";
-  if (n.includes("education")) return "#c0392b";
-  if (n.includes("music")) return "#e74c3c";
-  if (n.includes("entertainment")) return "#ff4757";
-  if (n.includes("science")) return "#ff6348";
-  return "#e53935";
 }
