@@ -9,10 +9,13 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    // Fetch ALL channels from your table
+    // Fetch ALL channels from the real cache table (see src/app/api/channel/route.ts,
+    // which is what actually writes rows here). This used to point at "youtube_channels",
+    // a separate 10-row table nothing in the app writes to — "channels" is the live,
+    // actively-written table with 146+ rows.
     const { data: channels, error } = await supabase
-      .from("youtube_channels")
-      .select("*")
+      .from("channels")
+      .select("id, youtube_id, handle, channel_name, avatar_url, description, subscriber_count, video_count, recent_upload_count_30d, category, niche, is_verified")
       .order("subscriber_count", { ascending: false });
 
     if (error) throw error;

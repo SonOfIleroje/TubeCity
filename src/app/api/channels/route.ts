@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { inferNiche } from "@/lib/niche";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -6,7 +7,7 @@ export async function GET() {
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from("channels")
-      .select("id, youtube_id, handle, channel_name, subscriber_count, video_count, recent_upload_count_30d, category, is_verified, cached_at, avatar_url")
+      .select("id, youtube_id, handle, channel_name, description, subscriber_count, video_count, recent_upload_count_30d, category, niche, is_verified, cached_at, avatar_url")
       .order("subscriber_count", { ascending: false })
       .limit(200);
 
@@ -20,6 +21,9 @@ export async function GET() {
       video_count: ch.video_count ?? 0,
       recent_upload_count_30d: ch.recent_upload_count_30d ?? 0,
       category: ch.category ?? null,
+      // Most rows already have a real niche; the ~87% still stuck on "other" get
+      // inferred on the fly here rather than left flat until someone backfills them.
+      niche: ch.niche && ch.niche !== "other" ? ch.niche : inferNiche(ch.category, `${ch.channel_name ?? ""} ${ch.description ?? ""}`),
       is_verified: ch.is_verified ?? false,
       avatar_url: ch.avatar_url ?? null,
       cached_at: ch.cached_at ?? null,

@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
+import { nicheColor } from "@/lib/niche";
 
 // ─── CONFIG ──────────────────────────────────────────────────
 
@@ -18,16 +19,20 @@ const DISTRICTS = [
   { id:"newcomer", label:"NEWCOMER STRIP",   minSubs:0,          ringR:620, color:"#ffaa00", desc:"Under 100K" },
 ];
 
+// Keep in sync with src/lib/sponsorship.ts's NICHE_CPM_TABLE — that vocabulary is
+// what's already live in the production channels.niche column.
 const CPM: Record<string,[number,number]> = {
-  finance:[15,30],tech:[10,20],education:[10,18],science:[10,18],
-  entertainment:[5,15],gaming:[5,12],music:[5,10],lifestyle:[8,15],
-  news:[8,15],comedy:[5,12],pets:[6,12],faith:[6,12],
+  finance:[15,30],business:[12,25],tech:[10,20],ai_tools:[12,28],education:[10,18],
+  health:[8,18],entertainment:[5,15],gaming:[5,12],music:[5,10],lifestyle:[8,15],
+  food:[5,14],travel:[6,18],beauty:[5,15],fitness:[6,16],kids:[3,10],
+  news:[8,15],science:[10,18],history:[6,14],pets:[6,12],other:[4,12],
 };
 
 const NICHE_SHAPES: Record<string, "box"|"step"|"taper"|"slim"|"wide"> = {
-  finance:"step", tech:"slim", gaming:"taper", education:"wide",
-  entertainment:"box", music:"slim", lifestyle:"wide", science:"step",
-  news:"box", faith:"taper", pets:"wide", comedy:"taper",
+  finance:"step", business:"step", tech:"slim", ai_tools:"slim", gaming:"taper",
+  education:"wide", entertainment:"box", music:"slim", lifestyle:"wide",
+  health:"wide", food:"wide", travel:"wide", beauty:"slim", fitness:"taper",
+  kids:"wide", science:"step", history:"step", news:"box", pets:"wide", other:"box",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────
@@ -37,22 +42,6 @@ function fmt(n:number):string {
   if(n>=1e6)return(n/1e6).toFixed(1)+"M";
   if(n>=1e3)return(n/1e3).toFixed(1)+"K";
   return String(n);
-}
-
-function inferNiche(c:string|null|undefined):string {
-  const s=(c??"").toLowerCase();
-  if(s.includes("financ")||s.includes("money"))return"finance";
-  if(s.includes("tech")||s.includes("software")||s.includes("coding"))return"tech";
-  if(s.includes("gaming")||s.includes("game"))return"gaming";
-  if(s.includes("educat")||s.includes("learn"))return"education";
-  if(s.includes("music"))return"music";
-  if(s.includes("lifestyl")||s.includes("vlog"))return"lifestyle";
-  if(s.includes("scienc"))return"science";
-  if(s.includes("news")||s.includes("polit"))return"news";
-  if(s.includes("faith")||s.includes("spirit"))return"faith";
-  if(s.includes("pet")||s.includes("animal"))return"pets";
-  if(s.includes("comed"))return"comedy";
-  return"entertainment";
 }
 
 function calcHeight(subs:number):number {
@@ -65,16 +54,6 @@ function calcHeight(subs:number):number {
 function calcWidth(videos:number):number {
   if(videos<=0)return 10;
   return 10+Math.min(1,Math.log10(Math.max(1,videos))/4)*20;
-}
-
-function nicheColor(niche:string):string {
-  const map:Record<string,string>={
-    finance:"#cc1111",tech:"#dd2200",gaming:"#ff4400",
-    education:"#aa2200",entertainment:"#ff2200",music:"#cc0044",
-    lifestyle:"#bb1133",science:"#dd1100",news:"#991100",
-    faith:"#cc4400",pets:"#bb3300",comedy:"#ff5500",
-  };
-  return map[niche]??"#cc2200";
 }
 
 function seededRnd(seed:number):number {
@@ -134,7 +113,7 @@ function createAtlas():THREE.CanvasTexture {
 interface ChData {
   id:string;handle:string;channel_name:string|null;
   subscriber_count:number;video_count:number;
-  recent_upload_count_30d:number;category:string|null;
+  recent_upload_count_30d:number;category:string|null;niche?:string;
   is_verified:boolean;avatar_url:string|null;total_view_count?:number;
 }
 
@@ -159,7 +138,7 @@ function layoutCity(channels:ChData[]):PlacedBld[] {
 
   for(const ch of sorted){
     const subs=ch.subscriber_count??0;
-    const niche=inferNiche(ch.category);
+    const niche=ch.niche??"other";
     const h=calcHeight(subs);
     const w=calcWidth(ch.video_count??0);
     const d=w*0.85;
