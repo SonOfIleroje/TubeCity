@@ -113,10 +113,18 @@ interface PlacedBld extends ChData {
   x:number;z:number;height:number;width:number;depth:number;
   niche:string;districtId:string;litPct:number;
   floors:number;wPerFloor:number;sWPerFloor:number;
-  shape:string;
+  shape:string;isPinned?:boolean;
 }
 
 // ─── LAYOUT ENGINE ────────────────────────────────────────────
+
+// Claimed prime spot — Money Mastery Hub. Matched by DB row id rather than handle:
+// production has three rows for this channel name (id 277: real, 32.5K subs, valid
+// youtube_id; id 42: fake seed/test data, youtube_id="MoneyMasteryHub" isn't a real
+// YouTube channel id; id 101: a different, unrelated 19-sub channel that happens to
+// share a similar handle). id 277 is the one with real data backing it.
+const PINNED_PRIME_ID=277;
+const PINNED_PRIME_POS:[number,number]=[55,0];
 
 function layoutCity(channels:ChData[]):PlacedBld[] {
   const result:PlacedBld[]=[];
@@ -140,31 +148,36 @@ function layoutCity(channels:ChData[]):PlacedBld[] {
     const wPerFloor=Math.max(3,Math.floor(w/5));
     const sWPerFloor=Math.max(3,Math.floor(d/5));
     const shape=NICHE_SHAPES[niche]??"box";
+    const isPinned=String(ch.id)===String(PINNED_PRIME_ID);
 
     let dId="newcomer";
     if(subs>=10_000_000)dId="mega";
     else if(subs>=1_000_000)dId="mid";
     else if(subs>=100_000)dId="rising";
-
-    const distIdx=DISTRICTS.findIndex(d=>d.id===dId);
-    const prevR=distIdx>0?DISTRICTS[distIdx-1].ringR+12:10;
-    const maxR=DISTRICTS[distIdx].ringR-12;
+    if(isPinned)dId="prime";
 
     let bx=0,bz=0,placed=false;
-    const hseed=ch.handle.split("").reduce((a,c)=>a+c.charCodeAt(0),0);
-    for(let a=0;a<140;a++){
-      const angle=seededRnd(hseed+a*997)*Math.PI*2;
-      const r=prevR+seededRnd(hseed+a*1301)*(maxR-prevR);
-      const tx=Math.cos(angle)*r,tz=Math.sin(angle)*r;
-      if(free(tx,tz,w/2)){bx=tx;bz=tz;placed=true;break;}
-    }
-    if(!placed){
-      const angle=seededRnd(hseed)*Math.PI*2;
-      const r=maxR+10+seededRnd(hseed+777)*80;
-      bx=Math.cos(angle)*r;bz=Math.sin(angle)*r;
+    if(isPinned){
+      bx=PINNED_PRIME_POS[0];bz=PINNED_PRIME_POS[1];placed=true;
+    }else{
+      const distIdx=DISTRICTS.findIndex(d=>d.id===dId);
+      const prevR=distIdx>0?DISTRICTS[distIdx-1].ringR+12:10;
+      const maxR=DISTRICTS[distIdx].ringR-12;
+      const hseed=ch.handle.split("").reduce((a,c)=>a+c.charCodeAt(0),0);
+      for(let a=0;a<140;a++){
+        const angle=seededRnd(hseed+a*997)*Math.PI*2;
+        const r=prevR+seededRnd(hseed+a*1301)*(maxR-prevR);
+        const tx=Math.cos(angle)*r,tz=Math.sin(angle)*r;
+        if(free(tx,tz,w/2)){bx=tx;bz=tz;placed=true;break;}
+      }
+      if(!placed){
+        const angle=seededRnd(hseed)*Math.PI*2;
+        const r=maxR+10+seededRnd(hseed+777)*80;
+        bx=Math.cos(angle)*r;bz=Math.sin(angle)*r;
+      }
     }
     occupied.push([bx,bz,w/2]);
-    result.push({...ch,x:bx,z:bz,height:h,width:w,depth:d,niche,districtId:dId,litPct,floors,wPerFloor,sWPerFloor,shape});
+    result.push({...ch,x:bx,z:bz,height:h,width:w,depth:d,niche,districtId:dId,litPct,floors,wPerFloor,sWPerFloor,shape,isPinned});
   }
   return result;
 }
@@ -697,6 +710,47 @@ function Vehicles(){
   return<>{vlist.map((v,i)=><Vehicle key={i} v={v}/>)}</>;
 }
 
+// ─── CLAIMED PRIME SPOT MARKER ────────────────────────────────
+// Gold outline + badge over whichever building layoutCity pinned to the
+// prime center (currently Money Mastery Hub) — visually distinguishes an
+// owned prime spot from the empty ghost slots PrimeSlots() renders.
+
+function PrimeClaimedMarker({b}:{b:PlacedBld}){
+  const ringRef=useRef<THREE.Mesh>(null);
+  const outlineRef=useRef<THREE.Mesh>(null);
+  useFrame(({clock})=>{
+    const t=clock.elapsedTime;
+    if(ringRef.current)ringRef.current.rotation.y=t*0.6;
+    if(outlineRef.current)(outlineRef.current.material as THREE.MeshBasicMaterial).opacity=0.5+Math.sin(t*1.8)*0.2;
+  });
+  return(
+    <group position={[b.x,0,b.z]}>
+      {/* Gold wireframe outline hugging the actual building volume */}
+      <mesh ref={outlineRef} position={[0,b.height/2,0]}>
+        <boxGeometry args={[b.width*1.08,b.height*1.03,b.depth*1.08]}/>
+        <meshBasicMaterial color="#ffd700" wireframe transparent opacity={0.6}/>
+      </mesh>
+      {/* Rotating halo above the building */}
+      <mesh ref={ringRef} position={[0,b.height+6,0]} rotation={[Math.PI/2,0,0]}>
+        <torusGeometry args={[b.width*0.8,0.6,8,32]}/>
+        <meshStandardMaterial color="#ffd700" emissive="#ffd700" emissiveIntensity={2.5} metalness={0.9}/>
+      </mesh>
+      <Suspense fallback={null}>
+        <DreiBillboard position={[0,b.height+11,0]} follow>
+          <Text fontSize={2.2} color="#ffd700" letterSpacing={0.08} anchorX="center" anchorY="middle">
+            ⭐ CLAIMED — MONEY MASTERY HUB
+          </Text>
+        </DreiBillboard>
+      </Suspense>
+      {/* Base ring */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.35,0]}>
+        <ringGeometry args={[b.width*0.65,b.width*0.85,32]}/>
+        <meshBasicMaterial color="#ffd700" transparent opacity={0.5}/>
+      </mesh>
+    </group>
+  );
+}
+
 // ─── AD BILLBOARDS ───────────────────────────────────────────
 // Real, visible "AD SPACE AVAILABLE" panels scattered around the outer
 // districts — previously the only ad-space signal was a text-only ticker
@@ -755,6 +809,65 @@ function AdBillboards(){
     return list;
   },[]);
   return<>{boards.map((b,i)=><AdBillboard key={i} b={b}/>)}</>;
+}
+
+// ─── PREMIUM TOWER BILLBOARDS (MEGACITY CORE ONLY) ────────────
+// Taller, wider panels reserved for the megacity ring (subs >= 10M, roughly
+// radius 85-180) — distinct from the smaller street-level AdBillboards
+// which live out past radius 380.
+
+function PremiumBillboard({b}:{b:BillboardDef}){
+  const glowRef=useRef<THREE.Mesh>(null);
+  useFrame(({clock})=>{
+    if(glowRef.current)(glowRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity=2.2+Math.sin(clock.elapsedTime*0.9+b.x)*0.5;
+  });
+  return(
+    <group position={[b.x,0,b.z]} rotation={[0,b.rotY,0]}>
+      <mesh position={[0,b.h/2,0]}>
+        <cylinderGeometry args={[2.2,2.8,b.h,10]}/>
+        <meshStandardMaterial color="#1a0000" metalness={0.8} roughness={0.3}/>
+      </mesh>
+      <mesh ref={glowRef} position={[0,b.h+18,0]}>
+        <boxGeometry args={[60,32,1.8]}/>
+        <meshStandardMaterial color="#120800" emissive="#ffcc00" emissiveIntensity={2.2} roughness={0.2} metalness={0.7}/>
+      </mesh>
+      <mesh position={[0,b.h+18,1.1]}>
+        <planeGeometry args={[56,28]}/>
+        <meshStandardMaterial color="#0a0000" emissive="#552200" emissiveIntensity={0.6}/>
+      </mesh>
+      <Suspense fallback={null}>
+        <DreiBillboard position={[0,b.h+18,1.3]} follow>
+          <Text fontSize={4.4} color="#ffd700" letterSpacing={0.05} anchorX="center" anchorY="middle" position={[0,6,0]}>
+            PREMIUM AD SPACE
+          </Text>
+          <Text fontSize={2.4} color="#ffaa44" letterSpacing={0.03} anchorX="center" anchorY="middle" position={[0,0.5,0]}>
+            MEGACITY CORE — EXCLUSIVE PLACEMENT
+          </Text>
+          <Text fontSize={1.8} color="#ff8844" letterSpacing={0.02} anchorX="center" anchorY="middle" position={[0,-4,0]}>
+            tubecity.io/advertise
+          </Text>
+        </DreiBillboard>
+      </Suspense>
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.3,0]}>
+        <ringGeometry args={[5,10,28]}/>
+        <meshBasicMaterial color="#ffcc00" transparent opacity={0.4}/>
+      </mesh>
+    </group>
+  );
+}
+
+function PremiumBillboards(){
+  const boards=useMemo<BillboardDef[]>(()=>{
+    const list:BillboardDef[]=[];
+    const count=4;
+    for(let i=0;i<count;i++){
+      const a=(i/count)*Math.PI*2+Math.PI/count;
+      const r=125+seededRnd(i*613)*35; // strictly within the mega ring (85-180)
+      list.push({x:Math.cos(a)*r,z:Math.sin(a)*r,rotY:-a+Math.PI/2,h:55+seededRnd(i*331)*20});
+    }
+    return list;
+  },[]);
+  return<>{boards.map((b,i)=><PremiumBillboard key={i} b={b}/>)}</>;
 }
 
 // ─── ATMOSPHERE ───────────────────────────────────────────────
@@ -1319,9 +1432,11 @@ export default function Home(){
           <PrimeSlots/>
           <Vehicles/>
           <Suspense fallback={null}><AdBillboards/></Suspense>
+          <Suspense fallback={null}><PremiumBillboards/></Suspense>
           {buildings.length>0&&(
             <>
               <InstancedCity buildings={buildings} atlas={atlas} focusHandle={focusHandle} onBuildingClick={handleClick} onHoverChange={handleHover}/>
+              {(()=>{const pinned=buildings.find(b=>b.isPinned);return pinned?<PrimeClaimedMarker b={pinned}/>:null;})()}
             </>
           )}
           {!flyMode&&<OrbitScene target={focusTgt}/>}
